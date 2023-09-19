@@ -10,29 +10,37 @@ var app = builder.Build();
 app.UseHttpsRedirection();
 app.Use((context, next) =>
 {
-    var headers = context.Request.Headers;
-    var authHeader = headers.Authorization;
-    var key = authHeader.FirstOrDefault();
 
-    if (authHeader.Count == 0 || string.IsNullOrEmpty(key))
+    var pathParams = context.Request.Path.Value.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+    if (pathParams.Length > 0 && !new[] { "canan", "admin" }.Contains(pathParams[0]))
     {
-        context.Response.StatusCode = 401;
-        return Task.CompletedTask;
-    }
+        var prefix = pathParams[0];
+        var headers = context.Request.Headers;
+        var authHeader = headers.Authorization;
+        var key = authHeader.FirstOrDefault();
 
-    var config = context.RequestServices.GetService<IConfiguration>();
+        if (authHeader.Count == 0 || string.IsNullOrEmpty(key))
+        {
+            context.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        }
 
-    var prefix = context.Request.Path.Value.Split('/', StringSplitOptions.RemoveEmptyEntries)[0];
+        var config = context.RequestServices.GetService<IConfiguration>();
 
-    var requiredkey = config.GetValue<string>("ApiKeys:" + prefix.ToLower());
-    if (!requiredkey.Equals(key))
-    {
-        context.Response.StatusCode = 401;
-        return Task.CompletedTask;
+        var requiredkey = config.GetValue<string>("ApiKeys:" + prefix.ToLower());
+        if (new[] { "canan", "admin" }.Contains(prefix) && !requiredkey.Equals(key))
+        {
+            context.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        }
     }
 
     return next(context);
 });
+
+app.MapGet("/", () => "hello from db api");
+
 #region Admin
 var admin = app.MapGroup("/admin");
 admin.MapGet("/getdb/{dbname}", (string dbname) =>
@@ -202,17 +210,17 @@ canan.MapGet("/seed", async ([FromServices] CananDb db) =>
                     Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
                     Amount = new Random().Next(50, 100),
                     Note = "",
-                    Type = new Random().Next(1, 10) > 5 ? "Debit" : "Credit",
+                    Type = new Random().Next(1, 10) > 5 ? "d" : "c",
                 }));
         }
         var totalDebit = transactions
                 .Where(x => x.Key == c)
-                .Where(x => x.Value.Type == "Debit")
+                .Where(x => x.Value.Type == "d")
                 .Sum(x => x.Value.Amount);
 
         var totalCredit = transactions
                 .Where(x => x.Key == c)
-                .Where(x => x.Value.Type == "Credit")
+                .Where(x => x.Value.Type == "c")
                 .Sum(x => x.Value.Amount);
         if (totalCredit > totalDebit)
         {
@@ -226,7 +234,7 @@ canan.MapGet("/seed", async ([FromServices] CananDb db) =>
                     Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
                     Amount = newAmount + diff,
                     Note = "",
-                    Type = "Debit",
+                    Type = "d",
                 }));
         }
     }
