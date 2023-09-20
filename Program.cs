@@ -1,121 +1,134 @@
 using databaseapi.data_access;
 using databaseapi.Models.CananDb;
+using databaseapi.Models.TakvimDb;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<CananDb>();
+builder.Services.AddSingleton<TakvimDb>();
 var app = builder.Build();
-
+var protectedRoutes = new[] { "canan", "admin", "takvim" };
 app.UseHttpsRedirection();
 app.Use((context, next) =>
 {
-    var headers = context.Request.Headers;
-    var authHeader = headers.Authorization;
-    var key = authHeader.FirstOrDefault();
 
-    if (authHeader.Count == 0 || string.IsNullOrEmpty(key))
+    var pathParams = context.Request.Path.Value.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+    if (pathParams.Length > 0 && !protectedRoutes.Contains(pathParams[0]))
     {
-        context.Response.StatusCode = 401;
-        return Task.CompletedTask;
-    }
+        var prefix = pathParams[0];
+        var headers = context.Request.Headers;
+        var authHeader = headers.Authorization;
+        var key = authHeader.FirstOrDefault();
 
-    var config = context.RequestServices.GetService<IConfiguration>();
+        if (authHeader.Count == 0 || string.IsNullOrEmpty(key))
+        {
+            context.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        }
 
-    var prefix = context.Request.Path.Value.Split('/', StringSplitOptions.RemoveEmptyEntries)[0];
+        var config = context.RequestServices.GetService<IConfiguration>();
 
-    var requiredkey = config.GetValue<string>("ApiKeys:" + prefix.ToLower());
-    if (!requiredkey.Equals(key))
-    {
-        context.Response.StatusCode = 401;
-        return Task.CompletedTask;
+        var requiredkey = config.GetValue<string>("ApiKeys:" + prefix.ToLower());
+        if (protectedRoutes.Contains(prefix) && !requiredkey.Equals(key))
+        {
+            context.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        }
     }
 
     return next(context);
 });
+
+app.MapGet("/", () => "hello from db api");
+
 #region Admin
-var admin = app.MapGroup("/admin");
-admin.MapGet("/getdb/{dbname}", (string dbname) =>
 {
-    if (string.IsNullOrEmpty(dbname))
+    var admin = app.MapGroup("/admin");
+    admin.MapGet("/getdb/{dbname}", (string dbname) =>
     {
+        if (string.IsNullOrEmpty(dbname))
+        {
+            return Results.BadRequest();
+        }
+        switch (dbname.ToLower())
+        {
+            case "canandb":
+                var filename = nameof(CananDb).GetEncodedName();
+                var dbcontent = File.ReadAllBytes(filename + ".bin");
+                return Results.Ok(new
+                {
+                    base64 = Convert.ToBase64String(dbcontent)
+                });
+            default:
+                break;
+        }
         return Results.BadRequest();
-    }
-    switch (dbname.ToLower())
-    {
-        case "canandb":
-            var filename = nameof(CananDb).GetEncodedName();
-            var dbcontent = File.ReadAllBytes(filename + ".bin");
-            return Results.Ok(new
-            {
-                base64 = Convert.ToBase64String(dbcontent)
-            });
-        default:
-            break;
-    }
-    return Results.BadRequest();
-});
+    });
 
 
-admin.MapGet("/initdb/{dbname}", async ([FromServices] IServiceProvider serviceProvider, string dbname) =>
-{
-    if (string.IsNullOrEmpty(dbname))
+    admin.MapGet("/initdb/{dbname}", async ([FromServices] IServiceProvider serviceProvider, string dbname) =>
     {
+        if (string.IsNullOrEmpty(dbname))
+        {
+            return Results.BadRequest();
+        }
+        switch (dbname.ToLower())
+        {
+            case "canandb":
+                try
+                {
+                    var canandb = serviceProvider.GetService<CananDb>();
+                    await canandb.Init();
+                    return Results.Ok();
+                }
+                catch (Exception e)
+                {
+                    return Results.Problem(e.Message);
+                }
+            default:
+                break;
+        }
         return Results.BadRequest();
-    }
-    switch (dbname.ToLower())
-    {
-        case "canandb":
-            try
-            {
-                var canandb = serviceProvider.GetService<CananDb>();
-                await canandb.Init();
-                return Results.Ok();
-            }
-            catch (Exception e)
-            {
-                return Results.Problem(e.Message);
-            }
-        default:
-            break;
-    }
-    return Results.BadRequest();
-});
+    });
 
-admin.MapGet("/truncatedb/{dbname}", async ([FromServices] IServiceProvider serviceProvider, string dbname) =>
-{
-    if (string.IsNullOrEmpty(dbname))
+    admin.MapGet("/truncatedb/{dbname}", async ([FromServices] IServiceProvider serviceProvider, string dbname) =>
     {
+        if (string.IsNullOrEmpty(dbname))
+        {
+            return Results.BadRequest();
+        }
+        switch (dbname.ToLower())
+        {
+            case "canandb":
+                try
+                {
+                    var canandb = serviceProvider.GetService<CananDb>();
+                    await canandb.Truncate();
+                    return Results.Ok();
+                }
+                catch (Exception e)
+                {
+                    return Results.Problem(e.Message);
+                }
+            default:
+                break;
+        }
         return Results.BadRequest();
-    }
-    switch (dbname.ToLower())
-    {
-        case "canandb":
-            try
-            {
-                var canandb = serviceProvider.GetService<CananDb>();
-                await canandb.Truncate();
-                return Results.Ok();
-            }
-            catch (Exception e)
-            {
-                return Results.Problem(e.Message);
-            }
-        default:
-            break;
-    }
-    return Results.BadRequest();
-});
+    });
+}
 #endregion
 
 #region Canan
-var canan = app.MapGroup("/canan");
-canan.MapGet("/seed", async ([FromServices] CananDb db) =>
 {
-    var transactions = new List<KeyValuePair<int, AddTransactionDTO>>();
-
-    var customers = new AddCustomerDTO[]
+    var canan = app.MapGroup("/canan");
+    canan.MapGet("/seed", async ([FromServices] CananDb db) =>
     {
+        var transactions = new List<KeyValuePair<int, AddTransactionDTO>>();
+
+        var customers = new AddCustomerDTO[]
+        {
         new AddCustomerDTO
         {
             FirstName = "vahap",
@@ -186,175 +199,229 @@ canan.MapGet("/seed", async ([FromServices] CananDb db) =>
             Note = "vahap'in isyerinden",
             PhoneNumber = "542 101"
         }
-    };
+        };
 
-    foreach (var customer in customers)
-    {
-        var c = await db.AddCustomerAsync(customer);
-
-        for (int i = 0; i < customer.FirstName.Length; i++)
+        foreach (var customer in customers)
         {
-            transactions.Add(
-                new KeyValuePair<int, AddTransactionDTO>(
-                c,
-                new AddTransactionDTO
-                {
-                    Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
-                    Amount = new Random().Next(50, 100),
-                    Note = "",
-                    Type = new Random().Next(1, 10) > 5 ? "Debit" : "Credit",
-                }));
-        }
-        var totalDebit = transactions
-                .Where(x => x.Key == c)
-                .Where(x => x.Value.Type == "Debit")
-                .Sum(x => x.Value.Amount);
+            var c = await db.AddCustomerAsync(customer);
 
-        var totalCredit = transactions
-                .Where(x => x.Key == c)
-                .Where(x => x.Value.Type == "Credit")
-                .Sum(x => x.Value.Amount);
-        if (totalCredit > totalDebit)
-        {
-            var newAmount = new Random().Next(50);
-            var diff = totalCredit - totalDebit;
-            transactions.Add(
-                new KeyValuePair<int, AddTransactionDTO>(
-                c,
-                new AddTransactionDTO
-                {
-                    Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
-                    Amount = newAmount + diff,
-                    Note = "",
-                    Type = "Debit",
-                }));
-        }
-    }
-    foreach (var transaction in transactions)
-    {
-        _ = await db.AddTransactionAsync(transaction.Key, transaction.Value);
-    }
-
-    return Results.Ok();
-});
-
-#region Customer
-var cananCustomer = canan.MapGroup("/customer");
-
-//Create Customer
-cananCustomer.MapPost("/", async ([FromServices] CananDb db, AddCustomerDTO model) =>
-{
-    var res = await db.AddCustomerAsync(model);
-    return res;
-});
-
-//Get single customer
-cananCustomer.MapGet("/{id}", async ([FromServices] CananDb db, [FromRoute] int id) =>
-{
-    try
-    {
-        var res = await db.GetCustomerAsync(id);
-        return Results.Ok(res);
-    }
-    catch (Exception)
-    {
-        return Results.NotFound();
-    }
-});
-
-//Search customer
-cananCustomer.MapGet("/search/{searchKey}", async ([FromServices] CananDb db, [FromRoute] string searchKey) =>
-{
-    var res = await db.SearchCustomersAsync(searchKey);
-    return res;
-});
-
-//All customers
-cananCustomer.MapGet("/", async ([FromServices] CananDb db) =>
-{
-    var res = await db.SearchCustomersAsync(string.Empty);
-    return res;
-});
-
-//Update Customer
-cananCustomer.MapPatch("/{id}", async ([FromServices] CananDb db, [FromRoute] int id, UpdateCustomerDTO updateCustomerDTO) =>
-{
-    var res = await db.UpdateCustomerAsync(id, updateCustomerDTO);
-    return res;
-});
-
-//Remove customer
-cananCustomer.MapDelete("/{id}", async ([FromServices] CananDb db, [FromRoute] int id) =>
-{
-    var res = await db.RemoveCustomerAsync(id);
-    return res;
-});
-#endregion
-
-#region Transaction
-var cananTransaction = canan.MapGroup("/transaction");
-
-cananTransaction.MapPost("/{customerId}/", async ([FromServices] CananDb db, [FromRoute] int customerId, AddTransactionDTO model) =>
-{
-    if (string.IsNullOrEmpty(model.Type))
-    {
-        return Results.BadRequest();
-    }
-
-    switch (model.Type.ToLower())
-    {
-        case "a":
-        case "alacak":
-        case "c":
-        case "credit":
-            model.Type = "c";
-            break;
-
-        case "b":
-        case "borc":
-        case "d":
-        case "debit":
-            model.Type = "d";
-            break;
-
-        default:
-            return Results.BadRequest(new
+            for (int i = 0; i < customer.FirstName.Length; i++)
             {
-                msg = "invalid transaction type: " + model.Type
-            });
-    }
+                transactions.Add(
+                    new KeyValuePair<int, AddTransactionDTO>(
+                    c,
+                    new AddTransactionDTO
+                    {
+                        Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
+                        Amount = new Random().Next(50, 100),
+                        Note = "",
+                        Type = new Random().Next(1, 10) > 5 ? "d" : "c",
+                    }));
+            }
+            var totalDebit = transactions
+                    .Where(x => x.Key == c)
+                    .Where(x => x.Value.Type == "d")
+                    .Sum(x => x.Value.Amount);
 
-    var res = await db.AddTransactionAsync(customerId, model);
-    return Results.Ok(res);
-});
+            var totalCredit = transactions
+                    .Where(x => x.Key == c)
+                    .Where(x => x.Value.Type == "c")
+                    .Sum(x => x.Value.Amount);
+            if (totalCredit > totalDebit)
+            {
+                var newAmount = new Random().Next(50);
+                var diff = totalCredit - totalDebit;
+                transactions.Add(
+                    new KeyValuePair<int, AddTransactionDTO>(
+                    c,
+                    new AddTransactionDTO
+                    {
+                        Date = DateTime.Now.AddDays(-1 * new Random().Next(1, 250)).ToISO(),
+                        Amount = newAmount + diff,
+                        Note = "",
+                        Type = "d",
+                    }));
+            }
+        }
+        foreach (var transaction in transactions)
+        {
+            _ = await db.AddTransactionAsync(transaction.Key, transaction.Value);
+        }
 
-//Get Customer Transactions
-cananTransaction.MapGet("/{customerId}", async ([FromServices] CananDb db, [FromRoute] int customerId) =>
-{
-    var res = await db.GetCustomerTransactionsAsync(customerId);
-    return res;
-});
+        return Results.Ok();
+    });
 
-cananTransaction.MapGet("/{customerId}/{transactionId}", async ([FromServices] CananDb db, [FromRoute] int customerId, [FromRoute] int transactionId) =>
-{
-    var res = await db.GetTransactionAsync(customerId, transactionId);
-    return res;
-});
+    #region Customer
+    var cananCustomer = canan.MapGroup("/customer");
+
+    //Create Customer
+    cananCustomer.MapPost("/", async ([FromServices] CananDb db, AddCustomerDTO model) =>
+    {
+        var res = await db.AddCustomerAsync(model);
+        return res;
+    });
+
+    //Get single customer
+    cananCustomer.MapGet("/{id}", async ([FromServices] CananDb db, [FromRoute] int id) =>
+    {
+        try
+        {
+            var res = await db.GetCustomerAsync(id);
+            return Results.Ok(res);
+        }
+        catch (Exception)
+        {
+            return Results.NotFound();
+        }
+    });
+
+    //Search customer
+    cananCustomer.MapGet("/search/{searchKey}", async ([FromServices] CananDb db, [FromRoute] string searchKey) =>
+    {
+        var res = await db.SearchCustomersAsync(searchKey);
+        return res;
+    });
+
+    //All customers
+    cananCustomer.MapGet("/", async ([FromServices] CananDb db) =>
+    {
+        var res = await db.SearchCustomersAsync(string.Empty);
+        return res;
+    });
+
+    //Update Customer
+    cananCustomer.MapPatch("/{id}", async ([FromServices] CananDb db, [FromRoute] int id, UpdateCustomerDTO updateCustomerDTO) =>
+    {
+        var res = await db.UpdateCustomerAsync(id, updateCustomerDTO);
+        return res;
+    });
+
+    //Remove customer
+    cananCustomer.MapDelete("/{id}", async ([FromServices] CananDb db, [FromRoute] int id) =>
+    {
+        var res = await db.RemoveCustomerAsync(id);
+        return res;
+    });
+    #endregion
+
+    #region Transaction
+    var cananTransaction = canan.MapGroup("/transaction");
+
+    cananTransaction.MapPost("/{customerId}/", async ([FromServices] CananDb db, [FromRoute] int customerId, AddTransactionDTO model) =>
+    {
+        if (string.IsNullOrEmpty(model.Type))
+        {
+            return Results.BadRequest();
+        }
+
+        switch (model.Type.ToLower())
+        {
+            case "a":
+            case "alacak":
+            case "c":
+            case "credit":
+                model.Type = "c";
+                break;
+
+            case "b":
+            case "borc":
+            case "d":
+            case "debit":
+                model.Type = "d";
+                break;
+
+            default:
+                return Results.BadRequest(new
+                {
+                    msg = "invalid transaction type: " + model.Type
+                });
+        }
+
+        var res = await db.AddTransactionAsync(customerId, model);
+        return Results.Ok(res);
+    });
+
+    //Get Customer Transactions
+    cananTransaction.MapGet("/{customerId}", async ([FromServices] CananDb db, [FromRoute] int customerId) =>
+    {
+        var res = await db.GetCustomerTransactionsAsync(customerId);
+        return res;
+    });
+
+    cananTransaction.MapGet("/{customerId}/{transactionId}", async ([FromServices] CananDb db, [FromRoute] int customerId, [FromRoute] int transactionId) =>
+    {
+        var res = await db.GetTransactionAsync(customerId, transactionId);
+        return res;
+    });
 
 
-cananTransaction.MapPatch("/{customerId}/{id}", async ([FromServices] CananDb db, [FromRoute] int id, [FromRoute] int customerId, UpdateTransactionDTO updateDTO) =>
-{
-    var res = await db.UpdateTransactionAsync(customerId, id, updateDTO);
-    return res;
-});
+    cananTransaction.MapPatch("/{customerId}/{id}", async ([FromServices] CananDb db, [FromRoute] int id, [FromRoute] int customerId, UpdateTransactionDTO updateDTO) =>
+    {
+        var res = await db.UpdateTransactionAsync(customerId, id, updateDTO);
+        return res;
+    });
 
-cananTransaction.MapDelete("/{customerId}/{id}", async ([FromServices] CananDb db, [FromRoute] int customerId, [FromRoute] int id) =>
-{
-    var res = await db.RemoveTransactionAsync(customerId, id);
-    return res;
-});
+    cananTransaction.MapDelete("/{customerId}/{id}", async ([FromServices] CananDb db, [FromRoute] int customerId, [FromRoute] int id) =>
+    {
+        var res = await db.RemoveTransactionAsync(customerId, id);
+        return res;
+    });
+    #endregion
+}
 #endregion
 
+#region Takvim
+{
+    var takvim = app.MapGroup("/takvim");
+
+
+    #region Event
+    var takvimEvent = takvim.MapGroup("/event");
+
+    //Create Event
+    takvimEvent.MapPost("/", async ([FromServices] TakvimDb db, AddEventDTO model) =>
+    {
+        var res = await db.AddEventAsync(model);
+        return res;
+    });
+
+    //Get single Event
+    takvimEvent.MapGet("/{id}", async ([FromServices] TakvimDb db, [FromRoute] int id) =>
+    {
+        try
+        {
+            var res = await db.GetEventAsync(id);
+            return Results.Ok(res);
+        }
+        catch (Exception)
+        {
+            return Results.NotFound();
+        }
+    });
+
+    //Monthly Event
+    takvimEvent.MapGet("/monthly", async ([FromServices] TakvimDb db, [FromQuery] DateTime starts, [FromQuery] DateTime ends) =>
+    {
+        var res = await db.GetMonthlyEventsAsync(starts, ends);
+        return res;
+    });
+
+    //Update Event
+    takvimEvent.MapPatch("/{id}", async ([FromServices] TakvimDb db, [FromRoute] int id, UpdateEventDTO updateEventDTO) =>
+    {
+        var res = await db.UpdateEventAsync(id, updateEventDTO);
+        return res;
+    });
+
+    //Remove Event
+    takvimEvent.MapDelete("/{id}", async ([FromServices] TakvimDb db, [FromRoute] int id) =>
+    {
+        var res = await db.RemoveEventAsync(id);
+        return res;
+    });
+    #endregion
+
+}
 #endregion
 
 app.Run();
