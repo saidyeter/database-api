@@ -46,6 +46,7 @@ ORDER BY [{nameof(Event.Starts)}] ASC;
             Ends = val.Ends,
             Starts = val.Starts,
             Location = val.Location,
+            DayColor = string.Empty
         }).ToArray();
     }
 
