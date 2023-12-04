@@ -1,6 +1,4 @@
-﻿using databaseapi.Models.CananDb;
-
-namespace databaseapi.Models.TakvimDb;
+﻿namespace databaseapi.Models.TakvimDb;
 
 public class Event : BaseEvent
 {
