@@ -1,0 +1,17 @@
+@url=http://localhost:5272
+@key=exampleTakvimKey
+
+GET {{url}}/takvim?year=2023&month=2 HTTP/1.1
+Authorization: {{key}}
+
+###
+
+POST {{url}}/takvim/event HTTP/1.1
+Content-Type: application/json
+Authorization: {{key}}
+
+{
+    "starts":"2023-02-27T00:00:00",
+    "ends":"2023-02-28T00:00:00",
+    "desc":"deneme event 5"
+}
